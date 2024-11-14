@@ -1,13 +1,18 @@
+#include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <random>
 #include <iomanip>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <stdio.h>
 #include <iostream>
 #include <assert.h>
 #include <math.h>
+#include <fstream>
 #include <float.h>
 
 #include "matplotlibcpp.h"
@@ -70,7 +75,6 @@ Point curve(std::vector<Point>& c, double t)
     return de_casteljau(c, i * k, i * k + DEGREE, t - i);
 }
 
-
 double objective(Point& x, Point& y)
 {
     auto diff = x - y;
@@ -106,6 +110,16 @@ Point gradient2d(
                       -(diff.first * g2.first + diff.second * g2.second) };
 }
 
+double clap(double x, double max)
+{
+    return std::min(std::max(0., x), max);
+};
+
+size_t number_of_splines(std::vector<Point>& c)
+{
+    return (c.size() - 1) / (DEGREE - 1);
+}
+
 Point gradient_descent(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
@@ -113,66 +127,34 @@ Point gradient_descent(
     double t2,
     size_t n_iter,
     double learn_rate,
-    double decay_rate,
     double h,
     double tolerance = 1e-06)
 {
-    // Point t1lim = { 0, 1 };  // min, max
-    // Point t2lim = { 0, 1 };  // min, max
+    auto tmax1 = number_of_splines(c1);
+    auto tmax2 = number_of_splines(c2);
     auto t = Point{ t1, t2 };
     auto diff = Point{ 0, 0 };
     for (size_t i = 0; i < n_iter; ++i) {
         auto g = gradient2d(c1, c2, t.first, t.second, h);
-        diff = decay_rate * diff - learn_rate * g;
+        diff = -learn_rate * g;
         if (std::abs(diff.first) <= tolerance &&
             std::abs(diff.second) <= tolerance) {
             break;
         }
         t = t + diff;
-        std::cout << "grad2d: " << g << std::endl;
-        std::cout << i << ": " << t << std::endl;
+        t.first = clap(t.first, tmax1);
+        t.second = clap(t.second, tmax2);
+        // std::cout << "grad2d: " << g << std::endl;
+        // std::cout << i << ": " << t << std::endl;
     }
 
     return t;
-}
-
-Array2D plt_vectorize(std::vector<Point>& c)
-{
-    std::vector<double> x(c.size());
-    std::vector<double> y(c.size());
-    for (size_t i = 0; i < c.size(); ++i) {
-        x[i] = c[i].first;
-        y[i] = c[i].second;
-    }
-
-    return { x, y };
-}
-
-Array2D plt_vectorize(std::vector<Point>&& c)
-{
-    return plt_vectorize(c);
-}
-
-Array2D plt_discretize(std::vector<Point>& c, size_t n)
-{
-    double h = double((c.size() + DEGREE) / DEGREE) / n;
-    std::vector<double> x(n + 1);
-    std::vector<double> y(n + 1);
-
-    for (size_t i = 0; i <= n; ++i) {
-        auto p = curve(c, i * h);
-        x[i] = p.first;
-        y[i] = p.second;
-    }
-
-    return { x, y };
 }
 
 struct NormalizedPoints
 {
     std::vector<Point> x;
     std::vector<Point> y;
-    double max_value;
 };
 
 NormalizedPoints normalize(std::vector<Point>& c1, std::vector<Point>& c2)
@@ -195,22 +177,14 @@ NormalizedPoints normalize(std::vector<Point>& c1, std::vector<Point>& c2)
         r2[i] = c2[i] / m;
     }
 
-    return { r1, r2, m };
-}
-
-size_t number_of_splines(std::vector<Point>& c)
-{
-    return (c.size() - 1) / (DEGREE - 1);
+    return { r1, r2 };
 }
 
 std::pair<Point, double> simulated_annealing(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
-    double tmax1,
-    double tmax2,
-    size_t n_iterations,
-    double std1,
-    double std2,
+    size_t max_iter,
+    double std,
     double temp)
 {
     std::random_device rd{};
@@ -219,6 +193,8 @@ std::pair<Point, double> simulated_annealing(
     std::uniform_real_distribution uni(0., 1.);
     std::normal_distribution gauss{ 0., 1. };
 
+    auto tmax1 = number_of_splines(c1);
+    auto tmax2 = number_of_splines(c2);
     // generate an initial point
     auto best = Point{ tmax1 * uni(gen), tmax2 * uni(gen) };
 
@@ -229,14 +205,10 @@ std::pair<Point, double> simulated_annealing(
     auto curr = best;
     auto curr_eval = best_eval;
 
-    auto clap = [](double x, double max) -> double {
-        return std::min(std::max(0., x), max);
-    };
-
-    for (size_t i = 0; i < n_iterations; ++i) {
+    for (size_t i = 0; i < max_iter; ++i) {
         // take a step
-        auto t1 = clap(curr.first + gauss(gen) * std1, tmax1);
-        auto t2 = clap(curr.second + gauss(gen) * std2, tmax2);
+        auto t1 = clap(curr.first + gauss(gen) * std, tmax1);
+        auto t2 = clap(curr.second + gauss(gen) * std, tmax2);
         auto candidate = Point{ t1, t2 };
         p1 = curve(c1, candidate.first), p2 = curve(c2, candidate.second);
         // evaluate candidate point
@@ -266,6 +238,37 @@ std::pair<Point, double> simulated_annealing(
     return { best, best_eval };
 }
 
+Array2D plt_vectorize(std::vector<Point>& c)
+{
+    std::vector<double> x(c.size());
+    std::vector<double> y(c.size());
+    for (size_t i = 0; i < c.size(); ++i) {
+        x[i] = c[i].first;
+        y[i] = c[i].second;
+    }
+
+    return { x, y };
+}
+
+Array2D plt_vectorize(std::vector<Point>&& c)
+{
+    return plt_vectorize(c);
+}
+
+Array2D plt_discretize(std::vector<Point>& c, size_t n)
+{
+    double h = double(number_of_splines(c)) / n;
+    std::vector<double> x(n + 1);
+    std::vector<double> y(n + 1);
+
+    for (size_t i = 0; i <= n; ++i) {
+        auto p = curve(c, i * h);
+        x[i] = p.first;
+        y[i] = p.second;
+    }
+
+    return { x, y };
+}
 
 void plot_splines(
     std::vector<Point>& c1, std::vector<Point>& c2, size_t npoints = 1000)
@@ -284,53 +287,66 @@ void plot_splines(
     plt::plot(ps2.first, ps2.second);
 }
 
-int main(int argc, char* argv[])
+std::pair<std::vector<Point>, std::vector<Point>> load_file(
+    std::string_view fname)
 {
-    std::vector<Point> a1 = { { 0, 128 },
-                              { 128, 0 },
-                              { 256, 0 },
-                              { 384, 128 },
-                              { 604.81353, 249.33342 },
-                              { 887.09354, 208.81476 },
-                              { 768.2388, -66.71214 } };
+    std::ifstream fin(fname.data());
+    if (!fin.is_open()) {
+        throw std::runtime_error("Could not open file");
+    }
 
-    std::vector<Point> a2 = {
-        { -52.9394, 499.1985 },
-        { 128.04395, 314.16328 },
-        { 300, 400 },
-        { 702.05832, 558.62587 },
-        { 766.88818, 393.84998 },
-        { 993.79268, 242.58031 },
-        { 1446.25106, 326.31888 },
+    std::vector<Point> a1;
+    std::vector<Point> a2;
+
+    auto load_spline = [&fin](std::vector<Point>& a) {
+        // Read data, line by line
+        std::string line;
+        while (std::getline(fin, line) && !line.empty()) {
+            // Create a stringstream of the current line
+            std::stringstream ss(line);
+
+            auto p = Point{};
+            ss >> p.first;
+            ss >> p.second;
+            a.push_back(p);
+        }
+        a.shrink_to_fit();
     };
 
-    // std::vector<Point> a1 = { { 0, 128 },
-    //                           { 128, 0 },
-    //                           { 256, 0 },
-    //                           { 384, 128 },
-    //                           { 604.81353, 249.33342 },
-    //                           { 887.09354, 208.81476 },
-    //                           { 768.2388, -66.71214 } };
+    load_spline(a1);
+    load_spline(a2);
 
-    // std::vector<Point> a2 = {
-    //     { 546.73678, 85.90815 },  { 446.79075, 243.93093 },
-    //     { 525.12683, 383.045 },   { 715.56454, 461.38108 },
-    //     { 968.13086, 412.75869 }, { 1151.81546, 330.37074 },
-    //     { 806.05622, 177.75045 },
-    // };
+    fin.close();
 
-    const size_t tmax1 = number_of_splines(a1);
-    const size_t tmax2 = number_of_splines(a2);
+    return { a1, a2 };
+}
 
-    const size_t n_iter = 100000;
+// splines.exe input.txt 2.txt --annealing_max_iter 100000 --temperature 1000000
+// --sgd_learning_rate 1e-1 --sgd_max_iter 10000 --sgd_tolerance 1e-12
+int main(int argc, char* argv[])
+{
+    if (argc < 12) {
+        fprintf(stderr, "wrong number of arguments\n");
+        return EXIT_FAILURE;
+    }
+
+    std::vector<Point> a1;
+    std::vector<Point> a2;
+    tie(a1, a2) = load_file(argv[1]);
+
+    const size_t annealing_max_iter = std::stoi(argv[3]);  // 100000;
     // initial temperature
-    const double temp = 1000;
-    const double std1 = 1., std2 = 1.;
+    const double temperature = std::stod(argv[5]);        // 10000;
+    const double sgd_learning_rate = std::stod(argv[7]);  // 1e-1;
+    const size_t sgd_max_iter = std::stoi(argv[9]);       // 100000;
+    const double sgd_tolerance = std::stod(argv[11]);     // 1e-08;
+
+    const double std = 1.;
 
     Point start;
     double best_eval;
     std::tie(start, best_eval) =
-        simulated_annealing(a1, a2, tmax1, tmax2, n_iter, std1, std2, temp);
+        simulated_annealing(a1, a2, annealing_max_iter, std, temperature);
 
     std::cout << "best_val: " << std::sqrt(best_eval) << std::endl;
 
@@ -340,28 +356,31 @@ int main(int argc, char* argv[])
     auto c1 = npoints.x, c2 = npoints.y;
 
     // stackoverflow.com/questions/1559695/implementing-the-derivative-in-c-c
-    const double lr = 1e-1, h = std::sqrt(DBL_EPSILON);
+    const double h = std::sqrt(DBL_EPSILON);
 
     auto t12 = gradient_descent(
-        c1, c2, start.first, start.second, 100000, lr, 0.9, h, 1e-012);
+        c1, c2, start.first, start.second, sgd_max_iter, sgd_learning_rate, h,
+        sgd_tolerance);
     auto p1 = curve(a1, t12.first);
     auto p2 = curve(a2, t12.second);
     std::cout << t12.first << " " << t12.second << std::endl;
     std::cout << p1 << " <----> " << p2 << std::endl;
     std::cout << "dist: " << distance(p1, p2) << std::endl;
 
-    if (argc > 1 && std::strcmp(argv[1], "--show") == 0) {
+    if (argc > 12 && std::strcmp(argv[12], "--show") == 0) {
         plot_splines(a1, a2, 10000);
 
         auto xy =
             plt_vectorize({ curve(a1, start.first), curve(a2, start.second) });
-        plt::scatter(xy.first, xy.second, 40);
+        std::map<std::string, std::string> kw = { { "color", "g" } };
+        plt::scatter(xy.first, xy.second, 40, kw);
 
         xy = plt_vectorize({ p1, p2 });
-        plt::scatter(xy.first, xy.second, 40);
+        kw["color"] = "r";
+        plt::scatter(xy.first, xy.second, 40, kw);
 
         plt::show();
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }
