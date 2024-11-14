@@ -21,6 +21,7 @@ namespace plt = matplotlibcpp;
 
 using Point = std::pair<double, double>;
 using Array2D = std::pair<std::vector<double>, std::vector<double>>;
+// Bézier curve degree
 const size_t DEGREE = 3;
 
 std::ostream& operator<<(std::ostream& os, const Point& p)
@@ -55,6 +56,8 @@ Point operator-(const Point& lhs, const Point& rhs)
     return Point{ lhs.first - rhs.first, lhs.second - rhs.second };
 }
 
+// https://en.wikipedia.org/wiki/De_Casteljau%27s_algorithm
+// Evaluate curve on parameter value `t`
 Point de_casteljau(std::vector<Point>& c, size_t start, size_t end, double t)
 {
     size_t n = end - start;
@@ -68,6 +71,7 @@ Point de_casteljau(std::vector<Point>& c, size_t start, size_t end, double t)
     return beta[0];
 }
 
+// Evaluate curve on parameter value `t`
 Point curve(std::vector<Point>& c, double t)
 {
     size_t i = t;
@@ -75,23 +79,31 @@ Point curve(std::vector<Point>& c, double t)
     return de_casteljau(c, i * k, i * k + DEGREE, t - i);
 }
 
-double objective(Point& x, Point& y)
+// The function to minimize, p1 is on curve1 and p2 is on curve2
+// The task is to find (p1, p2) such that `objective` is minimal
+// objective = |p1-p2|^2
+double objective(Point& p1, Point& p2)
 {
-    auto diff = x - y;
+    auto diff = p1 - p2;
     return std::pow(diff.first, 2) + std::pow(diff.second, 2);
 }
 
-// L2 norm
-double distance(Point& x, Point& y)
+// L2 norm of p1-p2
+double distance(Point& p1, Point& p2)
 {
-    return std::sqrt(objective(x, y));
+    return std::sqrt(objective(p1, p2));
 }
 
-double distance(Point&& x, Point&& y)
+// L2 norm of p1-p2
+double distance(Point&& p1, Point&& p2)
 {
-    return distance(x, y);
+    return distance(p1, p2);
 }
 
+// gradient of `objective` function with t1 and t2 being parametrization
+// P1 = (x1(t1), y1(t1)), P2 = (x2(t2), y2(t2))
+//  2(x1-x2) * dx1/dt1 + 2(y1-y2) * dy1/dt1
+// -2(x1-x2) * dx2/dt2 - 2(y1-y2) * dy2/dt2
 Point gradient2d(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
@@ -110,16 +122,25 @@ Point gradient2d(
                       -(diff.first * g2.first + diff.second * g2.second) };
 }
 
+// don't go beyond the boundary (0, max)
 double clap(double x, double max)
 {
     return std::min(std::max(0., x), max);
 };
 
+// number of splines that could fit the points
 size_t number_of_splines(std::vector<Point>& c)
 {
     return (c.size() - 1) / (DEGREE - 1);
 }
 
+// Iterative gradient descent algorithm to minimize a two dimensional objective
+// function.
+// t1, t2 - starting points on splines c1 and c2
+// n_iter - maximum number of iterations
+// learn_rate - learning rate
+// h - value of dt for derivative dx/dt
+// tolerance - stop criterion
 Point gradient_descent(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
@@ -157,6 +178,9 @@ struct NormalizedPoints
     std::vector<Point> y;
 };
 
+// Normalize points so that gradient descent algorithm has equal scale for any
+// input data. Divide each coordinate by a maximum distance between points, so
+// that they all be in [0, 1]
 NormalizedPoints normalize(std::vector<Point>& c1, std::vector<Point>& c2)
 {
     double m = DBL_MIN;
@@ -180,10 +204,16 @@ NormalizedPoints normalize(std::vector<Point>& c1, std::vector<Point>& c2)
     return { r1, r2 };
 }
 
+// Algiorithm of simulated annealing.
+// Finds global minimum of an objective function, whereas gradient descent finds
+// only a local minimum.
+// niter - number of iterations
+// std - standard deviation for sampling a new point from a normal distribution
+// temp - initial temperature
 std::pair<Point, double> simulated_annealing(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
-    size_t max_iter,
+    size_t niter,
     double std,
     double temp)
 {
@@ -205,7 +235,7 @@ std::pair<Point, double> simulated_annealing(
     auto curr = best;
     auto curr_eval = best_eval;
 
-    for (size_t i = 0; i < max_iter; ++i) {
+    for (size_t i = 0; i < niter; ++i) {
         // take a step
         auto t1 = clap(curr.first + gauss(gen) * std, tmax1);
         auto t2 = clap(curr.second + gauss(gen) * std, tmax2);
@@ -321,7 +351,7 @@ std::pair<std::vector<Point>, std::vector<Point>> load_file(
     return { a1, a2 };
 }
 
-// splines.exe input.txt 2.txt --annealing_max_iter 100000 --temperature 1000000
+// splines.exe input.txt 2.txt --annealing_iters 100000 --temperature 1000000
 // --sgd_learning_rate 1e-1 --sgd_max_iter 10000 --sgd_tolerance 1e-12
 int main(int argc, char* argv[])
 {
@@ -334,21 +364,22 @@ int main(int argc, char* argv[])
     std::vector<Point> a2;
     tie(a1, a2) = load_file(argv[1]);
 
-    const size_t annealing_max_iter = std::stoi(argv[3]);  // 100000;
+    const size_t annealing_iters = std::stoi(argv[3]);  // 100000;
     // initial temperature
     const double temperature = std::stod(argv[5]);        // 10000;
     const double sgd_learning_rate = std::stod(argv[7]);  // 1e-1;
     const size_t sgd_max_iter = std::stoi(argv[9]);       // 100000;
-    const double sgd_tolerance = std::stod(argv[11]);     // 1e-08;
+    const double sgd_tolerance = std::stod(argv[11]);     // 1e-12;
 
     const double std = 1.;
 
     Point start;
     double best_eval;
+    // We need to find a starting point for a gradient descent, hopefully it
+    // will be near a global minimum. Simulated annealing has a low precision,
+    // so we use gradient descent at the end
     std::tie(start, best_eval) =
-        simulated_annealing(a1, a2, annealing_max_iter, std, temperature);
-
-    std::cout << "best_val: " << std::sqrt(best_eval) << std::endl;
+        simulated_annealing(a1, a2, annealing_iters, std, temperature);
 
     // ========================= SGD =====================================
 
