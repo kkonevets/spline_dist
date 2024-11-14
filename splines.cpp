@@ -83,6 +83,11 @@ double distance(Point& x, Point& y)
     return std::sqrt(objective(x, y));
 }
 
+double distance(Point&& x, Point&& y)
+{
+    return distance(x, y);
+}
+
 Point gradient2d(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
@@ -186,7 +191,7 @@ NormalizedPoints normalize(std::vector<Point>& c1, std::vector<Point>& c2)
     for (size_t i = 0; i < c1.size(); ++i) {
         r1[i] = c1[i] / m;
     }
-    for (size_t i = 0; i < c1.size(); ++i) {
+    for (size_t i = 0; i < c2.size(); ++i) {
         r2[i] = c2[i] / m;
     }
 
@@ -198,71 +203,14 @@ size_t number_of_splines(std::vector<Point>& c)
     return (c.size() - 1) / (DEGREE - 1);
 }
 
-// quick and dirty N^2 solution of this problem
-// https://math.stackexchange.com/questions/610098/minimizing-the-distance-between-points-in-two-sets
-// TODO: implement Voronoi diagram
-Point choose_starting_point(std::vector<Point>& c1, std::vector<Point>& c2)
-{
-    auto approx_fn = [](std::vector<Point>& c) -> std::vector<Point> {
-        size_t nsplines = number_of_splines(c);
-
-        std::vector<Point> v(2 * nsplines + 1);
-        for (size_t i = 0; i < nsplines; ++i) {
-            v[2 * i] = c[i * (DEGREE - 1)];
-            v[2 * i + 1] = curve(c, i + 0.5);
-        }
-        v[2 * nsplines] = c[nsplines * (DEGREE - 1)];
-
-        return v;
-    };
-
-    auto v1 = approx_fn(c1);
-    auto v2 = approx_fn(c2);
-
-    double omin = DBL_MAX;
-    size_t imin = 0, jmin = 0;
-    for (size_t i = 0; i < v1.size(); ++i) {
-        for (size_t j = 0; j < v2.size(); ++j) {
-            auto o = objective(v1[i], v2[j]);
-            if (o < omin) {
-                imin = i;
-                jmin = j;
-                omin = o;
-            }
-        }
-    }
-
-    double t1 = imin / 2 + imin % 2 * 0.5;
-    double t2 = jmin / 2 + jmin % 2 * 0.5;
-    return { t1, t2 };
-}
-
-// std::vector<Point> a1 = { { 0, 128 },
-//                           { 128, 0 },
-//                           { 256, 0 },
-//                           { 384, 128 },
-//                           { 604.81353, 249.33342 },
-//                           { 887.09354, 208.81476 },
-//                           { 768.2388, -66.71214 } };
-
-// std::vector<Point> a2 = {
-//     { -52.9394, 499.1985 },
-//     { 128.04395, 314.16328 },
-//     { 300, 400 },
-//     { 702.05832, 558.62587 },
-//     { 766.88818, 393.84998 },
-//     { 993.79268, 242.58031 },
-//     { 1446.25106, 326.31888 },
-// };
-
 std::pair<Point, double> simulated_annealing(
     std::vector<Point>& c1,
     std::vector<Point>& c2,
     double tmax1,
     double tmax2,
     size_t n_iterations,
-    double step_size1,
-    double step_size2,
+    double std1,
+    double std2,
     double temp)
 {
     std::random_device rd{};
@@ -287,8 +235,8 @@ std::pair<Point, double> simulated_annealing(
 
     for (size_t i = 0; i < n_iterations; ++i) {
         // take a step
-        auto t1 = clap(curr.first + gauss(gen) * step_size1, tmax1);
-        auto t2 = clap(curr.second + gauss(gen) * step_size2, tmax2);
+        auto t1 = clap(curr.first + gauss(gen) * std1, tmax1);
+        auto t2 = clap(curr.second + gauss(gen) * std2, tmax2);
         auto candidate = Point{ t1, t2 };
         p1 = curve(c1, candidate.first), p2 = curve(c2, candidate.second);
         // evaluate candidate point
@@ -298,7 +246,8 @@ std::pair<Point, double> simulated_annealing(
             // store new best point
             best = candidate;
             best_eval = candidate_eval;
-            std::cout << i << ": " << best << " = " << best_eval << std::endl;
+            std::cout << i << ": " << best << " = " << std::sqrt(best_eval)
+                      << std::endl;
         }
         // difference between candidate and current point evaluation
         auto diff = candidate_eval - curr_eval;
@@ -317,39 +266,9 @@ std::pair<Point, double> simulated_annealing(
     return { best, best_eval };
 }
 
-template <typename T>
-T variance(const std::vector<T>& vec)
-{
-    const size_t sz = vec.size();
-    if (sz <= 1) {
-        return 0.0;
-    }
 
-    // Calculate the mean
-    const T mean = std::accumulate(vec.begin(), vec.end(), 0.0) / sz;
-
-    // Now calculate the variance
-    auto variance_func = [&mean, &sz](T accumulator, const T& val) {
-        return accumulator + ((val - mean) * (val - mean) / (sz - 1));
-    };
-
-    return std::accumulate(vec.begin(), vec.end(), 0.0, variance_func);
-}
-
-std::vector<double> distances(std::vector<Point>& c)
-{
-    if (c.size() < 2) {
-        return {};
-    }
-
-    std::vector<double> d(c.size() - 1);
-    for (size_t i = 0; i < c.size() - 1; ++i) {
-        d[i] = distance(c[i], c[i + 1]);
-    }
-    return d;
-}
-
-void plot_splines(std::vector<Point>& c1, std::vector<Point>& c2)
+void plot_splines(
+    std::vector<Point>& c1, std::vector<Point>& c2, size_t npoints = 1000)
 {
     plt::axis("equal");
 
@@ -359,66 +278,13 @@ void plot_splines(std::vector<Point>& c1, std::vector<Point>& c2)
     plt::plot(xy1.first, xy1.second, "g--");
     plt::plot(xy2.first, xy2.second, "g--");
 
-    auto ps1 = plt_discretize(c1, 1000);
-    auto ps2 = plt_discretize(c2, 1000);
+    auto ps1 = plt_discretize(c1, npoints);
+    auto ps2 = plt_discretize(c2, npoints);
     plt::plot(ps1.first, ps1.second);
     plt::plot(ps2.first, ps2.second);
 }
 
 int main(int argc, char* argv[])
-{
-    std::vector<Point> c1 = { { 0, 128 },
-                              { 128, 0 },
-                              { 256, 0 },
-                              { 384, 128 },
-                              { 604.81353, 249.33342 },
-                              { 887.09354, 208.81476 },
-                              { 768.2388, -66.71214 } };
-
-    std::vector<Point> c2 = {
-        { -52.9394, 499.1985 },
-        { 128.04395, 314.16328 },
-        { 300, 400 },
-        { 702.05832, 558.62587 },
-        { 766.88818, 393.84998 },
-        { 993.79268, 242.58031 },
-        { 1446.25106, 326.31888 },
-    };
-
-
-    const size_t tmax1 = number_of_splines(c1);
-    const size_t tmax2 = number_of_splines(c2);
-
-    const size_t n_iterations = 1000;
-    // define the maximum step size
-    const double step_size1 = std::sqrt(variance(distances(c1)));
-    const double step_size2 = std::sqrt(variance(distances(c2)));
-    // initial temperature
-    const double temp = 10;
-
-    std::cout << "std: " << step_size1 << ", " << step_size2 << std::endl;
-
-    Point best;
-    double best_eval;
-    std::tie(best, best_eval) = simulated_annealing(
-        c1, c2, tmax1, tmax2, n_iterations, step_size1, step_size2, temp);
-
-
-    if (argc > 1 && std::strcmp(argv[1], "--show") == 0) {
-        plot_splines(c1, c2);
-
-        auto xy =
-            plt_vectorize({ curve(c1, best.first), curve(c2, best.second) });
-        plt::scatter(xy.first, xy.second, 40);
-
-        plt::show();
-    }
-
-    return 0;
-}
-
-
-int main_sgd(int argc, char* argv[])
 {
     std::vector<Point> a1 = { { 0, 128 },
                               { 128, 0 },
@@ -429,39 +295,73 @@ int main_sgd(int argc, char* argv[])
                               { 768.2388, -66.71214 } };
 
     std::vector<Point> a2 = {
-        { 546.73678, 85.90815 },  { 446.79075, 243.93093 },
-        { 525.12683, 383.045 },   { 715.56454, 461.38108 },
-        { 968.13086, 412.75869 }, { 1151.81546, 330.37074 },
-        { 806.05622, 177.75045 },
+        { -52.9394, 499.1985 },
+        { 128.04395, 314.16328 },
+        { 300, 400 },
+        { 702.05832, 558.62587 },
+        { 766.88818, 393.84998 },
+        { 993.79268, 242.58031 },
+        { 1446.25106, 326.31888 },
     };
 
-    auto npoints = normalize(a1, a2);
-    std::vector<Point> c1 = npoints.x, c2 = npoints.y;
+    // std::vector<Point> a1 = { { 0, 128 },
+    //                           { 128, 0 },
+    //                           { 256, 0 },
+    //                           { 384, 128 },
+    //                           { 604.81353, 249.33342 },
+    //                           { 887.09354, 208.81476 },
+    //                           { 768.2388, -66.71214 } };
 
-    // // assert((ctrl.size() + 1) % DEGREE == 0);
-    // std::cout << curve(c1, 0.5) << std::endl;
+    // std::vector<Point> a2 = {
+    //     { 546.73678, 85.90815 },  { 446.79075, 243.93093 },
+    //     { 525.12683, 383.045 },   { 715.56454, 461.38108 },
+    //     { 968.13086, 412.75869 }, { 1151.81546, 330.37074 },
+    //     { 806.05622, 177.75045 },
+    // };
+
+    const size_t tmax1 = number_of_splines(a1);
+    const size_t tmax2 = number_of_splines(a2);
+
+    const size_t n_iter = 100000;
+    // initial temperature
+    const double temp = 1000;
+    const double std1 = 1., std2 = 1.;
+
+    Point start;
+    double best_eval;
+    std::tie(start, best_eval) =
+        simulated_annealing(a1, a2, tmax1, tmax2, n_iter, std1, std2, temp);
+
+    std::cout << "best_val: " << std::sqrt(best_eval) << std::endl;
+
+    // ========================= SGD =====================================
+
+    auto npoints = normalize(a1, a2);
+    auto c1 = npoints.x, c2 = npoints.y;
 
     // stackoverflow.com/questions/1559695/implementing-the-derivative-in-c-c
     const double lr = 1e-1, h = std::sqrt(DBL_EPSILON);
 
-    plt::axis("equal");
-
-    auto st = choose_starting_point(c1, c2);
-    auto xy = plt_vectorize({ curve(c1, st.first), curve(c2, st.second) });
-    plt::scatter(xy.first, xy.second, 40);
-
-    auto ts = gradient_descent(c1, c2, st.first, st.second, 100000, lr, 0.9, h);
-    std::cout << ts << std::endl;
-    auto p1 = curve(c1, ts.first);
-    auto p2 = curve(c2, ts.second);
-    xy = plt_vectorize({ p1, p2 });
+    auto t12 = gradient_descent(
+        c1, c2, start.first, start.second, 100000, lr, 0.9, h, 1e-012);
+    auto p1 = curve(a1, t12.first);
+    auto p2 = curve(a2, t12.second);
+    std::cout << t12.first << " " << t12.second << std::endl;
     std::cout << p1 << " <----> " << p2 << std::endl;
     std::cout << "dist: " << distance(p1, p2) << std::endl;
 
-    plot_splines(c1, c2);
-    plt::scatter(xy.first, xy.second, 40);
+    if (argc > 1 && std::strcmp(argv[1], "--show") == 0) {
+        plot_splines(a1, a2, 10000);
 
-    plt::show();
+        auto xy =
+            plt_vectorize({ curve(a1, start.first), curve(a2, start.second) });
+        plt::scatter(xy.first, xy.second, 40);
+
+        xy = plt_vectorize({ p1, p2 });
+        plt::scatter(xy.first, xy.second, 40);
+
+        plt::show();
+    }
 
     return 0;
 }
