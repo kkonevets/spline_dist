@@ -71,12 +71,18 @@ Point de_casteljau(std::vector<Point>& c, size_t start, size_t end, double t)
     return beta[0];
 }
 
+// number of splines that could fit the points
+inline size_t number_of_splines(std::vector<Point>& c)
+{
+    return (c.size() - 1) / (DEGREE - 1);
+}
+
 // Evaluate curve on parameter value `t`
 Point curve(std::vector<Point>& c, double t)
 {
     size_t i = t;
     constexpr auto k = DEGREE - 1;
-    return de_casteljau(c, i * k, i * k + DEGREE, t - i);
+    return de_casteljau(c, i * k, std::min(i * k + DEGREE, c.size()), t - i);
 }
 
 // The function to minimize, p1 is on curve1 and p2 is on curve2
@@ -127,12 +133,6 @@ double clap(double x, double max)
 {
     return std::min(std::max(0., x), max);
 };
-
-// number of splines that could fit the points
-size_t number_of_splines(std::vector<Point>& c)
-{
-    return (c.size() - 1) / (DEGREE - 1);
-}
 
 // Iterative gradient descent algorithm to minimize a two dimensional objective
 // function.
@@ -351,11 +351,12 @@ std::pair<std::vector<Point>, std::vector<Point>> load_file(
     return { a1, a2 };
 }
 
-// splines.exe input.txt 2.txt --annealing_iters 100000 --temperature 1000000
-// --sgd_learning_rate 1e-1 --sgd_max_iter 10000 --sgd_tolerance 1e-12
+// splines.exe input.txt 2.txt --annealing_iters 100000 --annealing_step 1.
+// --annealing_temperature 1000000 --sgd_learning_rate 1e-1 --sgd_max_iter 10000
+// --sgd_tolerance 1e-12
 int main(int argc, char* argv[])
 {
-    if (argc < 12) {
+    if (argc < 14) {
         fprintf(stderr, "wrong number of arguments\n");
         return EXIT_FAILURE;
     }
@@ -365,11 +366,12 @@ int main(int argc, char* argv[])
     tie(a1, a2) = load_file(argv[1]);
 
     const size_t annealing_iters = std::stoi(argv[3]);  // 100000;
+    const double annealing_step = std::stod(argv[5]);   // 1.;
     // initial temperature
-    const double temperature = std::stod(argv[5]);        // 10000;
-    const double sgd_learning_rate = std::stod(argv[7]);  // 1e-1;
-    const size_t sgd_max_iter = std::stoi(argv[9]);       // 100000;
-    const double sgd_tolerance = std::stod(argv[11]);     // 1e-12;
+    const double temperature = std::stod(argv[7]);        // 10000;
+    const double sgd_learning_rate = std::stod(argv[9]);  // 1e-1;
+    const size_t sgd_max_iter = std::stoi(argv[11]);      // 100000;
+    const double sgd_tolerance = std::stod(argv[13]);     // 1e-12;
 
     const double std = 1.;
 
@@ -398,7 +400,7 @@ int main(int argc, char* argv[])
     std::cout << p1 << " <----> " << p2 << std::endl;
     std::cout << "dist: " << distance(p1, p2) << std::endl;
 
-    if (argc > 12 && std::strcmp(argv[12], "--show") == 0) {
+    if (argc > 14 && std::strcmp(argv[14], "--show") == 0) {
         plot_splines(a1, a2, 10000);
 
         auto xy =
