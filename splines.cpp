@@ -15,9 +15,6 @@
 #include <fstream>
 #include <float.h>
 
-#include "matplotlibcpp.h"
-
-namespace plt = matplotlibcpp;
 
 using Point = std::pair<double, double>;
 using Array2D = std::pair<std::vector<double>, std::vector<double>>;
@@ -268,55 +265,6 @@ std::pair<Point, double> simulated_annealing(
     return { best, best_eval };
 }
 
-Array2D plt_vectorize(std::vector<Point>& c)
-{
-    std::vector<double> x(c.size());
-    std::vector<double> y(c.size());
-    for (size_t i = 0; i < c.size(); ++i) {
-        x[i] = c[i].first;
-        y[i] = c[i].second;
-    }
-
-    return { x, y };
-}
-
-Array2D plt_vectorize(std::vector<Point>&& c)
-{
-    return plt_vectorize(c);
-}
-
-Array2D plt_discretize(std::vector<Point>& c, size_t n)
-{
-    double h = double(number_of_splines(c)) / n;
-    std::vector<double> x(n + 1);
-    std::vector<double> y(n + 1);
-
-    for (size_t i = 0; i <= n; ++i) {
-        auto p = curve(c, i * h);
-        x[i] = p.first;
-        y[i] = p.second;
-    }
-
-    return { x, y };
-}
-
-void plot_splines(
-    std::vector<Point>& c1, std::vector<Point>& c2, size_t npoints = 1000)
-{
-    plt::axis("equal");
-
-    auto xy1 = plt_vectorize(c1);
-    auto xy2 = plt_vectorize(c2);
-
-    plt::plot(xy1.first, xy1.second, "g--");
-    plt::plot(xy2.first, xy2.second, "g--");
-
-    auto ps1 = plt_discretize(c1, npoints);
-    auto ps2 = plt_discretize(c2, npoints);
-    plt::plot(ps1.first, ps1.second);
-    plt::plot(ps2.first, ps2.second);
-}
-
 std::pair<std::vector<Point>, std::vector<Point>> load_file(
     std::string_view fname)
 {
@@ -399,21 +347,6 @@ int main(int argc, char* argv[])
     std::cout << t12.first << " " << t12.second << std::endl;
     std::cout << p1 << " <----> " << p2 << std::endl;
     std::cout << "dist: " << distance(p1, p2) << std::endl;
-
-    if (argc > 14 && std::strcmp(argv[14], "--show") == 0) {
-        plot_splines(a1, a2, 10000);
-
-        auto xy =
-            plt_vectorize({ curve(a1, start.first), curve(a2, start.second) });
-        std::map<std::string, std::string> kw = { { "color", "g" } };
-        plt::scatter(xy.first, xy.second, 40, kw);
-
-        xy = plt_vectorize({ p1, p2 });
-        kw["color"] = "r";
-        plt::scatter(xy.first, xy.second, 40, kw);
-
-        plt::show();
-    }
 
     return EXIT_SUCCESS;
 }
