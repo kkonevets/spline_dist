@@ -10,7 +10,7 @@ $$
 f(t_1, t_2) = (x_1(t_1)-x_2(t_2))^2 + (y_1(t_1)-y_2(t_2))^2
 $$
 
-Partial derivatives of which wounds:
+Partial derivatives of which are:
 
 $$
 \frac{\partial f}{\partial t_1} = 2(x_1-x_2) \frac{\partial x_1}{\partial t_1} + 2(y_1-y_2) \frac{\partial y_1}{\partial t_1}
