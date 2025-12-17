@@ -43,4 +43,13 @@ splines.exe input.txt 2.txt \
 * `sgd_max_iter` - how many gradient descent iterations to perform, it can be interrupted if the required accuracy is reached
 * `sgd_tolerance` - premature condition for stopping the descent, controls that the gradient is not too small and there is a point in continuing the descent
 
-The larger `annealing_temperature` and the larger `annealing_iters`, the more accurately the global minimum is sought. 
+The larger `annealing_temperature` and the larger `annealing_iters`, the more accurately the global minimum is sought.
+
+![](pics/Figure_1.png)
+![](pics/Figure_2.png)
+![](pics/Figure_3.png)
+![](pics/Figure_4.png)
+![](pics/Figure_5.png)
+![](pics/Figure_6.png)
+![](pics/Figure_7.png)
+![](pics/Figure_8.png)
